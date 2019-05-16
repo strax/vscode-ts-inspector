@@ -4,11 +4,15 @@ import * as path from "path";
 import * as ts from "typescript";
 import { EventEmitter, ExtensionContext, Position, ProviderResult, Range, TextDocument, TextDocumentContentChangeEvent, ThemeColor, TreeDataProvider, TreeItem, TreeItemCollapsibleState, window, workspace } from 'vscode';
 
-async function getCompilerInstance(): Promise<typeof ts> {
-  const tsdk = workspace.getConfiguration("typescript").get("tsdk") as string;
+async function getCompilerInstance(): Promise<typeof ts | undefined> {
   const rootPath = workspace.workspaceFolders![0].uri.fsPath;
-  const tsdkPath = path.join(rootPath, tsdk, "typescript.js");
-  return import(tsdkPath);
+  const tsdk = path.join(rootPath, "node_modules", "typescript", "lib");
+  const tsdkPath = path.join(tsdk, "typescript.js");
+  try {
+    return import(tsdkPath);
+  } catch {
+    window.showErrorMessage("Unable to locate a local TypeScript installation.");
+  }
 }
 
 function offsetToPosition(sourceFile: ts.SourceFile, offset: number) {
@@ -27,6 +31,9 @@ function nodeToRange(sourceFile: ts.SourceFile, node: ts.Node): Range {
 export async function activate(context: ExtensionContext) {
   const disposables = context.subscriptions;
   const ts = await getCompilerInstance();
+  if (!ts) {
+    return;
+  }
   const provider = new ASTProvider(ts);
   const view = window.createTreeView("typescript-inspector.ast", { showCollapseAll: true, treeDataProvider: provider });
   let visible = view.visible;
@@ -66,7 +73,7 @@ export async function activate(context: ExtensionContext) {
 
   workspace.onDidChangeTextDocument(evt => {
     if (activeTextEditor && evt.document === activeTextEditor.document) {
-      provider.update(evt.contentChanges)
+      provider.parse();
     }
   });
 
